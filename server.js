@@ -3,10 +3,10 @@ const cors = require('cors');
 const bodyParser = require('body-parser');
 const http = require('http');
 const { Server } = require('socket.io');
-const pool = require('./db');
 
 const app = express();
 const server = http.createServer(app);
+
 const io = new Server(server, {
   cors: { origin: "*" }
 });
@@ -16,83 +16,55 @@ app.use(bodyParser.json());
 
 const PORT = process.env.PORT || 5000;
 
-/* =========================
+/* =============================
    HEALTH CHECK
-========================= */
+============================= */
 app.get('/', (req, res) => {
   res.send("SmartBus Backend Running");
 });
 
-/* =========================
-   REGISTER BUS
-========================= */
-app.post('/api/bus/register', async (req, res) => {
-  const { bus_number, driver_name } = req.body;
+/* =============================
+   AUTO BUS SIMULATION
+   (No curl needed)
+============================= */
 
-  try {
-    const result = await pool.query(
-      `INSERT INTO buses (bus_number, driver_name)
-       VALUES ($1, $2) RETURNING *`,
-      [bus_number, driver_name]
-    );
+const routeCoordinates = [
+  { lat: 13.0827, lng: 80.2707 },
+  { lat: 13.0805, lng: 80.2690 },
+  { lat: 13.0780, lng: 80.2680 },
+  { lat: 13.0755, lng: 80.2675 },
+  { lat: 13.0720, lng: 80.2685 },
+  { lat: 13.0690, lng: 80.2700 },
+  { lat: 13.0655, lng: 80.2720 },
+  { lat: 13.0620, lng: 80.2740 },
+  { lat: 13.0585, lng: 80.2760 }
+];
 
-    res.json(result.rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+let currentIndex = 0;
+
+function simulateBus() {
+  const point = routeCoordinates[currentIndex];
+
+  io.emit("busLocationUpdate", {
+    bus_id: 1,
+    latitude: point.lat,
+    longitude: point.lng,
+    speed: 35
+  });
+
+  currentIndex++;
+
+  if (currentIndex >= routeCoordinates.length) {
+    currentIndex = 0; // loop back
   }
-});
+}
 
-/* =========================
-   GPS UPDATE
-========================= */
-app.post('/api/bus/location', async (req, res) => {
-  const { bus_id, latitude, longitude, speed } = req.body;
+// Run every 3 seconds
+setInterval(simulateBus, 3000);
 
-  try {
-    await pool.query(
-      `INSERT INTO live_locations (bus_id, latitude, longitude, speed)
-       VALUES ($1, $2, $3, $4)`,
-      [bus_id, latitude, longitude, speed]
-    );
-
-    io.emit("busLocationUpdate", {
-      bus_id,
-      latitude,
-      longitude,
-      speed
-    });
-
-    res.json({ message: "Location updated successfully" });
-
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-/* =========================
-   GET LATEST LOCATION
-========================= */
-app.get('/api/bus/:id/location', async (req, res) => {
-  const busId = req.params.id;
-
-  try {
-    const result = await pool.query(
-      `SELECT * FROM live_locations
-       WHERE bus_id = $1
-       ORDER BY recorded_at DESC
-       LIMIT 1`,
-      [busId]
-    );
-
-    res.json(result.rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-/* =========================
-   WEBSOCKET
-========================= */
+/* =============================
+   SOCKET CONNECTION
+============================= */
 io.on("connection", (socket) => {
   console.log("Client connected");
 
@@ -101,9 +73,9 @@ io.on("connection", (socket) => {
   });
 });
 
-/* =========================
+/* =============================
    START SERVER
-========================= */
+============================= */
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
